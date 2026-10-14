@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once "auth.php";
+requireRole(["admin", "cajero"]);
 require_once "conexion.php";
 
 if (!isset($_SESSION["carrito"]) || count($_SESSION["carrito"]) == 0) {
@@ -9,6 +10,96 @@ if (!isset($_SESSION["carrito"]) || count($_SESSION["carrito"]) == 0) {
 
 if ($_SERVER["REQUEST_METHOD"] != "POST") {
     header("Location: venta.php");
+    exit;
+}
+
+$datosCliente = [
+    "cliente_tipo_documento" => trim(
+        is_string($_POST["cliente_tipo_documento"] ?? null)
+            ? $_POST["cliente_tipo_documento"]
+            : ""
+    ),
+    "cliente_documento" => trim(
+        is_string($_POST["cliente_documento"] ?? null)
+            ? $_POST["cliente_documento"]
+            : ""
+    ),
+    "cliente_nombre" => trim(
+        is_string($_POST["cliente_nombre"] ?? null)
+            ? $_POST["cliente_nombre"]
+            : ""
+    ),
+    "cliente_telefono" => trim(
+        is_string($_POST["cliente_telefono"] ?? null)
+            ? $_POST["cliente_telefono"]
+            : ""
+    )
+];
+$_SESSION["datos_cliente"] = $datosCliente;
+
+$camposClienteCompletos = array_filter($datosCliente, function ($valor) {
+    return $valor !== "";
+});
+$erroresCliente = [];
+
+if (count($camposClienteCompletos) > 0) {
+    $tiposDocumentoValidos = ["CC", "CE", "NIT", "Pasaporte"];
+
+    if (!in_array($datosCliente["cliente_tipo_documento"], $tiposDocumentoValidos, true)) {
+        $erroresCliente[] = "Selecciona un tipo de documento válido.";
+    }
+
+    if (!preg_match('/^[A-Za-z0-9.-]{5,30}$/', $datosCliente["cliente_documento"])) {
+        $erroresCliente[] = "El documento debe tener entre 5 y 30 caracteres alfanuméricos.";
+    }
+
+    if (
+        strlen($datosCliente["cliente_nombre"]) < 2 ||
+        strlen($datosCliente["cliente_nombre"]) > 100 ||
+        preg_match('/[\x00-\x1F\x7F]/', $datosCliente["cliente_nombre"])
+    ) {
+        $erroresCliente[] = "Ingresa un nombre de cliente válido (máximo 100 caracteres).";
+    }
+
+    $digitosTelefono = preg_match_all('/[0-9]/', $datosCliente["cliente_telefono"]);
+    if (
+        !preg_match('/^[0-9+() -]{7,20}$/', $datosCliente["cliente_telefono"]) ||
+        $digitosTelefono < 7 ||
+        $digitosTelefono > 15
+    ) {
+        $erroresCliente[] = "El teléfono debe tener entre 7 y 15 dígitos.";
+    }
+}
+
+if (count($erroresCliente) > 0) {
+    http_response_code(422);
+    ?>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Revisar datos del cliente - Minimarket</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+              rel="stylesheet">
+    </head>
+    <body class="bg-light">
+    <?php require "navbar.php"; ?>
+    <main class="container py-5">
+        <div class="alert alert-danger">
+            <h2 class="h5">Revisa los datos del cliente</h2>
+            <ul class="mb-0">
+                <?php foreach ($erroresCliente as $error): ?>
+                    <li><?php echo htmlspecialchars($error); ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <p>La venta sigue en curso y no se ha descontado el inventario.</p>
+        <a href="venta.php" class="btn btn-primary">Volver a la venta</a>
+    </main>
+    </body>
+    </html>
+    <?php
     exit;
 }
 
@@ -44,15 +135,21 @@ try {
 
     $stmtVenta = $conexion->prepare(
         "INSERT INTO ventas
-        (total, metodo_pago, monto_pagado, estado)
-        VALUES (?, ?, ?, 'PAGADA')"
+        (total, metodo_pago, monto_pagado, estado,
+         cliente_tipo_documento, cliente_documento,
+         cliente_nombre, cliente_telefono)
+        VALUES (?, ?, ?, 'APROBADA', ?, ?, ?, ?)"
     );
 
     $stmtVenta->bind_param(
-        "dsd",
+        "dsdssss",
         $total,
         $metodo_pago,
-        $monto_pagado
+        $monto_pagado,
+        $datosCliente["cliente_tipo_documento"],
+        $datosCliente["cliente_documento"],
+        $datosCliente["cliente_nombre"],
+        $datosCliente["cliente_telefono"]
     );
 
     $stmtVenta->execute();
@@ -144,6 +241,21 @@ try {
         $stmtActualizar->execute();
     }
 
+    $pendienteId = (int) ($_SESSION["venta_pendiente_id"] ?? 0);
+    if ($pendienteId > 0) {
+        $stmtEliminarPendiente = $conexion->prepare(
+            "DELETE FROM ventas_pendientes WHERE id = ?"
+        );
+        $stmtEliminarPendiente->bind_param("i", $pendienteId);
+        $stmtEliminarPendiente->execute();
+
+        if ($stmtEliminarPendiente->affected_rows !== 1) {
+            throw new Exception(
+                "La venta pendiente ya no existe; no se pudo confirmar el cobro."
+            );
+        }
+    }
+
 
     /* CONFIRMAR TODOS LOS CAMBIOS */
 
@@ -163,6 +275,7 @@ try {
 $carritoFactura = $_SESSION["carrito"];
 
 $_SESSION["carrito"] = [];
+unset($_SESSION["venta_pendiente_id"], $_SESSION["datos_cliente"]);
 ?>
 
 <!DOCTYPE html>
@@ -185,21 +298,7 @@ $_SESSION["carrito"] = [];
 
 <body class="bg-light">
 
-<nav class="navbar navbar-dark bg-dark">
-
-    <div class="container">
-
-        <a class="navbar-brand" href="index.php">
-            Sistema Minimarket
-        </a>
-
-        <a href="index.php" class="btn btn-outline-light">
-            Inicio
-        </a>
-
-    </div>
-
-</nav>
+<?php require "navbar.php"; ?>
 
 
 <div class="container py-5">
@@ -241,6 +340,25 @@ $_SESSION["carrito"] = [];
                 </div>
 
             </div>
+
+            <?php if ($datosCliente["cliente_nombre"] !== ""): ?>
+                <div class="card card-body mb-4">
+                    <h5>Datos del cliente</h5>
+                    <p class="mb-1">
+                        <strong>Nombre:</strong>
+                        <?php echo htmlspecialchars($datosCliente["cliente_nombre"]); ?>
+                    </p>
+                    <p class="mb-1">
+                        <strong>Documento:</strong>
+                        <?php echo htmlspecialchars($datosCliente["cliente_tipo_documento"]); ?>
+                        <?php echo htmlspecialchars($datosCliente["cliente_documento"]); ?>
+                    </p>
+                    <p class="mb-0">
+                        <strong>Teléfono:</strong>
+                        <?php echo htmlspecialchars($datosCliente["cliente_telefono"]); ?>
+                    </p>
+                </div>
+            <?php endif; ?>
 
 
             <div class="table-responsive">
@@ -386,12 +504,11 @@ $_SESSION["carrito"] = [];
 
             <div class="d-flex gap-2">
 
-                <a href="venta.php"
-                   class="btn btn-success">
-
-                    Nueva venta
-
-                </a>
+                <?php if (currentRole() === "cajero"): ?>
+                    <a href="venta.php" class="btn btn-success">
+                        Nueva venta
+                    </a>
+                <?php endif; ?>
 
                 <a href="index.php"
                    class="btn btn-dark">

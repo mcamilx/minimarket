@@ -1,11 +1,53 @@
 <?php
+require_once "auth.php";
+requireRole(["admin", "cajero"]);
 require_once "conexion.php";
 
-$sql = "SELECT id, fecha_hora, total, metodo_pago, monto_pagado, estado
-        FROM ventas
-        ORDER BY id DESC";
+$esAdministrador = currentRole() === "admin";
+$buscar = trim(
+    is_string($_GET["buscar"] ?? null) ? $_GET["buscar"] : ""
+);
 
-$resultado = $conexion->query($sql);
+$sql = "(SELECT v.id, v.fecha_hora, v.total, v.metodo_pago, v.monto_pagado,
+               CASE WHEN v.estado = 'PAGADA' THEN 'APROBADA' ELSE v.estado END AS estado,
+               v.cliente_tipo_documento, v.cliente_documento,
+               v.cliente_nombre, v.cliente_telefono, 0 AS es_pendiente
+        FROM ventas v
+        UNION ALL
+        SELECT vp.id, vp.fecha_hora, vp.total, '' AS metodo_pago,
+               0 AS monto_pagado, 'PENDIENTE' AS estado,
+               NULL AS cliente_tipo_documento, NULL AS cliente_documento,
+               NULL AS cliente_nombre, NULL AS cliente_telefono, 1 AS es_pendiente
+        FROM ventas_pendientes vp)";
+
+if ($esAdministrador && $buscar !== "") {
+    $numeroFactura = ctype_digit($buscar) ? (int) $buscar : 0;
+    $coincidencia = "%" . $buscar . "%";
+    $stmt = $conexion->prepare(
+        "SELECT * FROM " . $sql . " AS historial
+         WHERE (es_pendiente = 0 AND id = ?)
+                OR (es_pendiente = 1 AND id = ?)
+                OR cliente_nombre LIKE ?
+                OR cliente_documento LIKE ?
+                OR cliente_telefono LIKE ?
+         ORDER BY fecha_hora DESC, es_pendiente DESC, id DESC"
+    );
+    $stmt->bind_param(
+        "iisss",
+        $numeroFactura,
+        $numeroFactura,
+        $coincidencia,
+        $coincidencia,
+        $coincidencia
+    );
+    $stmt->execute();
+    $resultado = $stmt->get_result();
+} else {
+    $resultado = $conexion->query(
+        "SELECT * FROM " . $sql .
+        " AS historial ORDER BY fecha_hora DESC, es_pendiente DESC, id DESC"
+    );
+}
 ?>
 
 <!DOCTYPE html>
@@ -28,21 +70,7 @@ $resultado = $conexion->query($sql);
 
 <body class="bg-light">
 
-<nav class="navbar navbar-dark bg-dark">
-
-    <div class="container">
-
-        <a class="navbar-brand" href="index.php">
-            Sistema Minimarket
-        </a>
-
-        <a href="index.php" class="btn btn-outline-light">
-            Inicio
-        </a>
-
-    </div>
-
-</nav>
+<?php require "navbar.php"; ?>
 
 
 <div class="container py-5">
@@ -51,14 +79,35 @@ $resultado = $conexion->query($sql);
 
         <h2>Historial de ventas</h2>
 
-        <a href="venta.php"
-           class="btn btn-success">
-
-            Nueva venta
-
-        </a>
+        <?php if (!$esAdministrador): ?>
+            <a href="venta.php" class="btn btn-success">
+                Nueva venta
+            </a>
+        <?php endif; ?>
 
     </div>
+
+    <?php if ($esAdministrador): ?>
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <form method="GET">
+                    <label for="buscar" class="form-label">
+                        Buscar por número de factura, nombre, documento o teléfono
+                    </label>
+                    <div class="input-group">
+                        <input type="search" id="buscar" name="buscar"
+                               class="form-control"
+                               placeholder="Número de factura o datos del cliente"
+                               value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button type="submit" class="btn btn-dark">Buscar</button>
+                        <a href="historial.php" class="btn btn-outline-secondary">
+                            Mostrar todas
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    <?php endif; ?>
 
 
     <div class="card shadow-sm">
@@ -78,6 +127,8 @@ $resultado = $conexion->query($sql);
                         <tr>
                             <th>Venta</th>
                             <th>Fecha y hora</th>
+                            <th>Cliente</th>
+                            <th>Documento</th>
                             <th>Total</th>
                             <th>Método de pago</th>
                             <th>Valor pagado</th>
@@ -95,7 +146,11 @@ $resultado = $conexion->query($sql);
                             <tr>
 
                                 <td>
-                                    #<?php echo $venta["id"]; ?>
+                                    #<?php
+                                    echo $venta["es_pendiente"]
+                                        ? "P-" . (int) $venta["id"]
+                                        : (int) $venta["id"];
+                                    ?>
                                 </td>
 
                                 <td>
@@ -108,38 +163,48 @@ $resultado = $conexion->query($sql);
                                 </td>
 
                                 <td>
-                                    $<?php
-                                    echo number_format(
-                                        $venta["total"],
-                                        0,
-                                        ",",
-                                        "."
-                                    );
-                                    ?>
-                                </td>
-
-                                <td>
                                     <?php
                                     echo htmlspecialchars(
-                                        $venta["metodo_pago"]
+                                        $venta["cliente_nombre"] ?:
+                                            ($venta["es_pendiente"] ? "—" : "Consumidor final")
                                     );
                                     ?>
                                 </td>
 
                                 <td>
-                                    $<?php
-                                    echo number_format(
-                                        $venta["monto_pagado"],
-                                        0,
-                                        ",",
-                                        "."
-                                    );
-                                    ?>
+                                    <?php if ($venta["cliente_documento"]): ?>
+                                        <?php
+                                        echo htmlspecialchars(
+                                            $venta["cliente_tipo_documento"] . " " .
+                                            $venta["cliente_documento"]
+                                        );
+                                        ?>
+                                    <?php else: ?>
+                                        —
+                                    <?php endif; ?>
+                                </td>
+
+                                <td>
+                                    $<?php echo number_format($venta["total"], 0, ",", "."); ?>
+                                </td>
+
+                                <td>
+                                    <?php echo $venta["metodo_pago"]
+                                        ? htmlspecialchars($venta["metodo_pago"])
+                                        : "—"; ?>
+                                </td>
+
+                                <td>
+                                    <?php if ($venta["es_pendiente"]): ?>
+                                        —
+                                    <?php else: ?>
+                                        $<?php echo number_format($venta["monto_pagado"], 0, ",", "."); ?>
+                                    <?php endif; ?>
                                 </td>
 
                                 <td>
 
-                                    <span class="badge bg-success">
+                                    <span class="badge <?php echo $venta["estado"] === "PENDIENTE" ? "bg-warning text-dark" : "bg-success"; ?>">
 
                                         <?php
                                         echo htmlspecialchars(
@@ -159,10 +224,10 @@ $resultado = $conexion->query($sql);
 
                         <tr>
 
-                            <td colspan="6"
+                            <td colspan="8"
                                 class="text-center text-muted">
 
-                                Todavía no hay ventas registradas.
+                                <?php echo $buscar !== "" ? "No se encontraron ventas con esos datos." : "Todavía no hay ventas registradas."; ?>
 
                             </td>
 

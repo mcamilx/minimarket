@@ -1,4 +1,6 @@
 <?php
+require_once "auth.php";
+requireRole(["admin", "cajero"]);
 require_once "conexion.php";
 
 $buscar = "";
@@ -48,21 +50,7 @@ if ($buscar != "") {
 
 <body class="bg-light">
 
-<nav class="navbar navbar-dark bg-dark">
-
-    <div class="container">
-
-        <a class="navbar-brand" href="index.php">
-            Sistema Minimarket
-        </a>
-
-        <a href="index.php" class="btn btn-outline-light">
-            Inicio
-        </a>
-
-    </div>
-
-</nav>
+<?php require "navbar.php"; ?>
 
 
 <div class="container py-5">
@@ -71,12 +59,11 @@ if ($buscar != "") {
 
         <h2>Inventario</h2>
 
-        <a href="productos.php"
-           class="btn btn-primary">
-
-            Registrar producto
-
-        </a>
+        <?php if (currentRole() === "admin"): ?>
+            <a href="productos.php" class="btn btn-primary">
+                Gestionar productos
+            </a>
+        <?php endif; ?>
 
     </div>
 

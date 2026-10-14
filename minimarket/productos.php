@@ -1,4 +1,6 @@
 <?php
+require_once "auth.php";
+requireRole(["admin"]);
 require_once "conexion.php";
 
 $mensaje = "";
@@ -43,19 +45,7 @@ $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
 
 <body class="bg-light">
 
-<nav class="navbar navbar-dark bg-dark">
-    <div class="container">
-
-        <a class="navbar-brand" href="index.php">
-            Sistema Minimarket
-        </a>
-
-        <a href="index.php" class="btn btn-outline-light">
-            Inicio
-        </a>
-
-    </div>
-</nav>
+<?php require "navbar.php"; ?>
 
 <div class="container py-5">
 
