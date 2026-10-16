@@ -2,6 +2,7 @@
 require_once "auth.php";
 requireRole(["admin", "cajero"]);
 require_once "conexion.php";
+require_once "patrones_diseno.php";
 
 if (!isset($_SESSION["carrito"]) || count($_SESSION["carrito"]) == 0) {
     header("Location: venta.php");
@@ -103,7 +104,9 @@ if (count($erroresCliente) > 0) {
     exit;
 }
 
-$metodo_pago = $_POST["metodo_pago"] ?? "";
+$metodo_pago = is_string($_POST["metodo_pago"] ?? null)
+    ? $_POST["metodo_pago"]
+    : "";
 $monto_pagado = (float) ($_POST["monto_pagado"] ?? 0);
 
 $total = 0;
@@ -112,20 +115,18 @@ foreach ($_SESSION["carrito"] as $item) {
     $total += $item["precio"] * $item["cantidad"];
 }
 
-/* VALIDAR MÉTODO DE PAGO */
-if ($metodo_pago != "Efectivo" && $metodo_pago != "Tarjeta") {
-    die("Método de pago no válido. Regrese a la venta.");
-}
-
-/* VALIDAR PAGO */
-if ($monto_pagado < $total) {
+try {
+    $estrategiaPago = MetodoPagoFactory::crear($metodo_pago);
+    $estrategiaPago->validarPago($total, $monto_pagado);
+} catch (InvalidArgumentException $error) {
+    http_response_code(422);
     die(
-        "El valor pagado es inferior al total de la compra. " .
-        "<a href='venta.php'>Regresar a la venta</a>"
+        htmlspecialchars($error->getMessage()) .
+        " <a href='venta.php'>Regresar a la venta</a>"
     );
 }
 
-$cambio = $monto_pagado - $total;
+$cambio = $estrategiaPago->calcularCambio($total, $monto_pagado);
 
 $conexion->begin_transaction();
 

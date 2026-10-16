@@ -2,29 +2,87 @@
 require_once "auth.php";
 requireRole(["admin"]);
 require_once "conexion.php";
+require_once "patrones_diseno.php";
 
 $mensaje = "";
+$tipoMensaje = "info";
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["registrar_producto"])) {
 
-    $codigo = trim($_POST["codigo"]);
-    $nombre = trim($_POST["nombre"]);
-    $precio = $_POST["precio"];
-    $cantidad = $_POST["cantidad"];
+    $codigo = trim(
+        is_string($_POST["codigo"] ?? null) ? $_POST["codigo"] : ""
+    );
+    $nombre = trim(
+        is_string($_POST["nombre"] ?? null) ? $_POST["nombre"] : ""
+    );
+    $precio = filter_var($_POST["precio"] ?? null, FILTER_VALIDATE_FLOAT);
+    $cantidad = filter_var($_POST["cantidad"] ?? null, FILTER_VALIDATE_INT);
 
-    $sql = "INSERT INTO productos (codigo, nombre, precio, cantidad)
-            VALUES (?, ?, ?, ?)";
-
-    $stmt = $conexion->prepare($sql);
-    $stmt->bind_param("ssdi", $codigo, $nombre, $precio, $cantidad);
-
-    if ($stmt->execute()) {
-        $mensaje = "Producto registrado correctamente.";
+    if (
+        $codigo === "" ||
+        $nombre === "" ||
+        $precio === false ||
+        $precio < 0 ||
+        $cantidad === false ||
+        $cantidad < 0
+    ) {
+        $mensaje = "Completa los datos con un código, nombre, precio y cantidad válidos.";
+        $tipoMensaje = "danger";
     } else {
-        $mensaje = "No se pudo registrar el producto. Verifica que el código no esté repetido.";
+        $sql = "INSERT INTO productos (codigo, nombre, precio, cantidad)
+                VALUES (?, ?, ?, ?)";
+
+        $stmt = $conexion->prepare($sql);
+        $stmt->bind_param("ssdi", $codigo, $nombre, $precio, $cantidad);
+
+        try {
+            $stmt->execute();
+            $mensaje = "Producto registrado correctamente.";
+            $tipoMensaje = "success";
+        } catch (mysqli_sql_exception $error) {
+            if ($error->getCode() === 1062) {
+                $mensaje = "No se pudo registrar el producto: ese código ya está registrado.";
+                $tipoMensaje = "danger";
+            } else {
+                throw $error;
+            }
+        }
+
+        $stmt->close();
+    }
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["reponer_stock"])) {
+    $codigoReposicion = trim(
+        is_string($_POST["codigo_reposicion"] ?? null)
+            ? $_POST["codigo_reposicion"]
+            : ""
+    );
+    $cantidadReposicion = filter_var(
+        $_POST["cantidad_reposicion"] ?? null,
+        FILTER_VALIDATE_INT
+    );
+
+    if ($codigoReposicion === "" || $cantidadReposicion === false || $cantidadReposicion <= 0) {
+        $mensaje = "Ingresa el código del producto y una cantidad mayor que cero.";
+        $tipoMensaje = "danger";
+    } else {
+        $resultadoReposicion = ProductoRepository::reponerSiAgotado(
+            $conexion,
+            $codigoReposicion,
+            $cantidadReposicion
+        );
+
+        if ($resultadoReposicion === "repuesto") {
+            $mensaje = "Stock repuesto correctamente. El producto ya está disponible para venderse.";
+            $tipoMensaje = "success";
+        } elseif ($resultadoReposicion === "no_encontrado") {
+            $mensaje = "No existe un producto con ese código.";
+            $tipoMensaje = "danger";
+        } else {
+            $mensaje = "El producto existe, pero no está agotado. La reposición solo se permite cuando su stock es cero.";
+            $tipoMensaje = "warning";
+        }
     }
 
-    $stmt->close();
 }
 
 $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
@@ -53,8 +111,8 @@ $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
 
     <?php if ($mensaje != ""): ?>
 
-        <div class="alert alert-info">
-            <?php echo $mensaje; ?>
+        <div class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?>">
+            <?php echo htmlspecialchars($mensaje); ?>
         </div>
 
     <?php endif; ?>
@@ -118,6 +176,7 @@ $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
 
                 <button
                     type="submit"
+                    name="registrar_producto"
                     class="btn btn-primary mt-4">
 
                     Registrar producto
@@ -126,6 +185,58 @@ $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
 
             </form>
 
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-5">
+
+        <div class="card-header">
+            Reponer producto agotado
+        </div>
+
+        <div class="card-body">
+            <p class="text-muted">
+                Ingresa el código exacto del producto agotado y la cantidad de unidades que vas a agregar.
+            </p>
+
+            <form method="POST">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label for="codigo_reposicion" class="form-label">
+                            Código del producto
+                        </label>
+                        <input
+                            type="text"
+                            id="codigo_reposicion"
+                            name="codigo_reposicion"
+                            class="form-control"
+                            maxlength="30"
+                            required>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label for="cantidad_reposicion" class="form-label">
+                            Cantidad a agregar
+                        </label>
+                        <input
+                            type="number"
+                            id="cantidad_reposicion"
+                            name="cantidad_reposicion"
+                            class="form-control"
+                            min="1"
+                            required>
+                    </div>
+
+                    <div class="col-md-3">
+                        <button
+                            type="submit"
+                            name="reponer_stock"
+                            class="btn btn-warning w-100">
+                            Reponer stock
+                        </button>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -148,6 +259,7 @@ $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
                             <th>Producto</th>
                             <th>Precio</th>
                             <th>Cantidad</th>
+                            <th>Estado</th>
                         </tr>
                     </thead>
 
@@ -171,6 +283,14 @@ $resultado = $conexion->query("SELECT * FROM productos ORDER BY id DESC");
 
                             <td>
                                 <?php echo $producto["cantidad"]; ?>
+                            </td>
+
+                            <td>
+                                <?php if ((int) $producto["cantidad"] > 0): ?>
+                                    <span class="badge bg-success">Disponible</span>
+                                <?php else: ?>
+                                    <span class="badge bg-danger">Agotado</span>
+                                <?php endif; ?>
                             </td>
 
                         </tr>

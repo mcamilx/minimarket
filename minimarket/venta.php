@@ -2,6 +2,7 @@
 require_once "auth.php";
 requireRole(["admin", "cajero"]);
 require_once "conexion.php";
+require_once "patrones_diseno.php";
 
 if (!isset($_SESSION["carrito"])) {
     $_SESSION["carrito"] = [];
@@ -151,16 +152,7 @@ if (isset($_POST["agregar"])) {
     $producto_id = (int) $_POST["producto_id"];
     $cantidad = (int) $_POST["cantidad"];
 
-    $stmt = $conexion->prepare(
-        "SELECT id, codigo, nombre, precio, cantidad
-         FROM productos
-         WHERE id = ?"
-    );
-
-    $stmt->bind_param("i", $producto_id);
-    $stmt->execute();
-
-    $producto = $stmt->get_result()->fetch_assoc();
+    $producto = ProductoRepository::buscarPorId($conexion, $producto_id);
 
     if (!$producto) {
 
@@ -239,12 +231,7 @@ foreach ($_SESSION["carrito"] as $item) {
 
 
 /* PRODUCTOS DISPONIBLES */
-$resultado = $conexion->query(
-    "SELECT *
-     FROM productos
-     WHERE cantidad > 0
-     ORDER BY nombre ASC"
-);
+$resultado = ProductoRepository::listarDisponibles($conexion);
 ?>
 
 <!DOCTYPE html>
