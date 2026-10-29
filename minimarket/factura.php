@@ -1,8 +1,14 @@
 <?php
+/*
+ * Controlador de F-01 Registrar venta.
+ * Responsabilidades: recibir la solicitud, delegar en los servicios
+ * y mostrar la respuesta (errores o factura).
+ * La lógica de negocio y el SQL están en servicios_venta.php.
+ */
 require_once "auth.php";
 requireRole(["admin", "cajero"]);
 require_once "conexion.php";
-require_once "patrones_diseno.php";
+require_once "servicios_venta.php";
 
 if (!isset($_SESSION["carrito"]) || count($_SESSION["carrito"]) == 0) {
     header("Location: venta.php");
@@ -14,63 +20,12 @@ if ($_SERVER["REQUEST_METHOD"] != "POST") {
     exit;
 }
 
-$datosCliente = [
-    "cliente_tipo_documento" => trim(
-        is_string($_POST["cliente_tipo_documento"] ?? null)
-            ? $_POST["cliente_tipo_documento"]
-            : ""
-    ),
-    "cliente_documento" => trim(
-        is_string($_POST["cliente_documento"] ?? null)
-            ? $_POST["cliente_documento"]
-            : ""
-    ),
-    "cliente_nombre" => trim(
-        is_string($_POST["cliente_nombre"] ?? null)
-            ? $_POST["cliente_nombre"]
-            : ""
-    ),
-    "cliente_telefono" => trim(
-        is_string($_POST["cliente_telefono"] ?? null)
-            ? $_POST["cliente_telefono"]
-            : ""
-    )
-];
+/* 1. LEER Y VALIDAR DATOS DEL CLIENTE */
+
+$datosCliente = ValidadorCliente::leerDesdeFormulario($_POST);
 $_SESSION["datos_cliente"] = $datosCliente;
 
-$camposClienteCompletos = array_filter($datosCliente, function ($valor) {
-    return $valor !== "";
-});
-$erroresCliente = [];
-
-if (count($camposClienteCompletos) > 0) {
-    $tiposDocumentoValidos = ["CC", "CE", "NIT", "Pasaporte"];
-
-    if (!in_array($datosCliente["cliente_tipo_documento"], $tiposDocumentoValidos, true)) {
-        $erroresCliente[] = "Selecciona un tipo de documento válido.";
-    }
-
-    if (!preg_match('/^[A-Za-z0-9.-]{5,30}$/', $datosCliente["cliente_documento"])) {
-        $erroresCliente[] = "El documento debe tener entre 5 y 30 caracteres alfanuméricos.";
-    }
-
-    if (
-        strlen($datosCliente["cliente_nombre"]) < 2 ||
-        strlen($datosCliente["cliente_nombre"]) > 100 ||
-        preg_match('/[\x00-\x1F\x7F]/', $datosCliente["cliente_nombre"])
-    ) {
-        $erroresCliente[] = "Ingresa un nombre de cliente válido (máximo 100 caracteres).";
-    }
-
-    $digitosTelefono = preg_match_all('/[0-9]/', $datosCliente["cliente_telefono"]);
-    if (
-        !preg_match('/^[0-9+() -]{7,20}$/', $datosCliente["cliente_telefono"]) ||
-        $digitosTelefono < 7 ||
-        $digitosTelefono > 15
-    ) {
-        $erroresCliente[] = "El teléfono debe tener entre 7 y 15 dígitos.";
-    }
-}
+$erroresCliente = ValidadorCliente::validar($datosCliente);
 
 if (count($erroresCliente) > 0) {
     http_response_code(422);
@@ -104,174 +59,45 @@ if (count($erroresCliente) > 0) {
     exit;
 }
 
+/* 2. LEER DATOS DEL PAGO */
+
 $metodo_pago = is_string($_POST["metodo_pago"] ?? null)
     ? $_POST["metodo_pago"]
     : "";
 $monto_pagado = (float) ($_POST["monto_pagado"] ?? 0);
+$pendienteId = (int) ($_SESSION["venta_pendiente_id"] ?? 0);
 
-$total = 0;
+/* 3. DELEGAR EL REGISTRO AL SERVICIO */
 
-foreach ($_SESSION["carrito"] as $item) {
-    $total += $item["precio"] * $item["cantidad"];
-}
+$servicio = new RegistrarVentaService(new VentaRepository($conexion));
 
 try {
-    $estrategiaPago = MetodoPagoFactory::crear($metodo_pago);
-    $estrategiaPago->validarPago($total, $monto_pagado);
+    $resultado = $servicio->registrar(
+        $_SESSION["carrito"],
+        $datosCliente,
+        $metodo_pago,
+        $monto_pagado,
+        $pendienteId
+    );
 } catch (InvalidArgumentException $error) {
     http_response_code(422);
     die(
         htmlspecialchars($error->getMessage()) .
         " <a href='venta.php'>Regresar a la venta</a>"
     );
-}
-
-$cambio = $estrategiaPago->calcularCambio($total, $monto_pagado);
-
-$conexion->begin_transaction();
-
-try {
-
-    /* REGISTRAR VENTA */
-
-    $stmtVenta = $conexion->prepare(
-        "INSERT INTO ventas
-        (total, metodo_pago, monto_pagado, estado,
-         cliente_tipo_documento, cliente_documento,
-         cliente_nombre, cliente_telefono)
-        VALUES (?, ?, ?, 'APROBADA', ?, ?, ?, ?)"
-    );
-
-    $stmtVenta->bind_param(
-        "dsdssss",
-        $total,
-        $metodo_pago,
-        $monto_pagado,
-        $datosCliente["cliente_tipo_documento"],
-        $datosCliente["cliente_documento"],
-        $datosCliente["cliente_nombre"],
-        $datosCliente["cliente_telefono"]
-    );
-
-    $stmtVenta->execute();
-
-    $venta_id = $conexion->insert_id;
-
-
-    /* REGISTRAR PRODUCTOS VENDIDOS */
-
-    foreach ($_SESSION["carrito"] as $item) {
-
-        $producto_id = $item["id"];
-        $cantidadVendida = $item["cantidad"];
-        $precio = $item["precio"];
-        $subtotal = $precio * $cantidadVendida;
-
-
-        /* COMPROBAR NUEVAMENTE EL INVENTARIO */
-
-        $stmtStock = $conexion->prepare(
-            "SELECT cantidad
-             FROM productos
-             WHERE id = ?
-             FOR UPDATE"
-        );
-
-        $stmtStock->bind_param(
-            "i",
-            $producto_id
-        );
-
-        $stmtStock->execute();
-
-        $resultadoStock =
-            $stmtStock->get_result();
-
-        $productoStock =
-            $resultadoStock->fetch_assoc();
-
-        if (!$productoStock) {
-            throw new Exception(
-                "Uno de los productos ya no existe."
-            );
-        }
-
-        if ($productoStock["cantidad"] < $cantidadVendida) {
-            throw new Exception(
-                "No hay suficiente inventario de " .
-                $item["nombre"] . "."
-            );
-        }
-
-
-        /* GUARDAR DETALLE DE LA VENTA */
-
-        $stmtDetalle = $conexion->prepare(
-            "INSERT INTO detalle_venta
-            (venta_id, producto_id, cantidad,
-             precio_unitario, subtotal)
-            VALUES (?, ?, ?, ?, ?)"
-        );
-
-        $stmtDetalle->bind_param(
-            "iiidd",
-            $venta_id,
-            $producto_id,
-            $cantidadVendida,
-            $precio,
-            $subtotal
-        );
-
-        $stmtDetalle->execute();
-
-
-        /* DESCONTAR INVENTARIO */
-
-        $stmtActualizar = $conexion->prepare(
-            "UPDATE productos
-             SET cantidad = cantidad - ?
-             WHERE id = ?"
-        );
-
-        $stmtActualizar->bind_param(
-            "ii",
-            $cantidadVendida,
-            $producto_id
-        );
-
-        $stmtActualizar->execute();
-    }
-
-    $pendienteId = (int) ($_SESSION["venta_pendiente_id"] ?? 0);
-    if ($pendienteId > 0) {
-        $stmtEliminarPendiente = $conexion->prepare(
-            "DELETE FROM ventas_pendientes WHERE id = ?"
-        );
-        $stmtEliminarPendiente->bind_param("i", $pendienteId);
-        $stmtEliminarPendiente->execute();
-
-        if ($stmtEliminarPendiente->affected_rows !== 1) {
-            throw new Exception(
-                "La venta pendiente ya no existe; no se pudo confirmar el cobro."
-            );
-        }
-    }
-
-
-    /* CONFIRMAR TODOS LOS CAMBIOS */
-
-    $conexion->commit();
-
 } catch (Exception $e) {
-
-    $conexion->rollback();
-
     die(
         "No se pudo completar la venta: " .
         htmlspecialchars($e->getMessage()) .
         "<br><a href='venta.php'>Regresar</a>"
     );
 }
+
+$venta_id = $resultado["venta_id"];
+$total = $resultado["total"];
+$cambio = $resultado["cambio"];
+
+/* 4. PREPARAR LA VISTA Y LIMPIAR LA SESIÓN */
 
 $carritoFactura = $_SESSION["carrito"];
 
@@ -382,9 +208,7 @@ unset($_SESSION["venta_pendiente_id"], $_SESSION["datos_cliente"]);
                     <?php foreach ($carritoFactura as $item): ?>
 
                         <?php
-                        $subtotal =
-                            $item["precio"] *
-                            $item["cantidad"];
+                        $subtotal = CalculadoraVenta::subtotal($item);
                         ?>
 
                         <tr>
