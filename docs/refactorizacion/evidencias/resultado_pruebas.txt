@@ -1,0 +1,24 @@
+[OK]    Subtotal = precio x cantidad
+[OK]    Total = suma de subtotales (19600)
+[OK]    Total de carrito vacío = 0
+[OK]    Cliente vacío es válido (opcional)
+[OK]    Cliente completo y correcto es válido
+[OK]    Cliente con tipo y teléfono inválidos da 2 errores
+[OK]    leerDesdeFormulario quita espacios
+[OK]    Venta válida devuelve id
+[OK]    Venta válida: total 19600
+[OK]    Efectivo: cambio 400
+[OK]    Se guardan 2 detalles
+[OK]    Se descuenta el inventario (8 y 7)
+[OK]    La transacción se confirma
+[OK]    Tarjeta: cambio 0
+[OK]    Pago insuficiente es rechazado
+[OK]    Pago insuficiente no toca la BD
+[OK]    Método de pago inválido es rechazado
+[OK]    Producto inexistente es rechazado
+[OK]    Producto inexistente hace rollback
+[OK]    Inventario insuficiente es rechazado
+[OK]    Inventario insuficiente hace rollback
+[OK]    Pendiente inexistente es rechazada
+
+Resultado: 22 aprobadas, 0 fallidas
