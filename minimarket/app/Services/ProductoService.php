@@ -8,7 +8,7 @@ use App\Repositories\Contracts\ProductoRepositoryInterface;
 use App\Validators\ProductoValidator;
 
 /*
- * Reglas de negocio de los productos: registrar, reponer y consultar.
+ * Reglas de negocio de los productos: registrar, editar, eliminar, reponer y consultar.
  */
 class ProductoService
 {
@@ -47,6 +47,57 @@ class ProductoService
         }
 
         $this->productos->crear($producto);
+    }
+
+    public function obtener(int $id): Producto
+    {
+        $producto = $this->productos->buscarPorId($id);
+
+        if ($producto === null) {
+            throw new ReglaNegocioException("El producto no existe.");
+        }
+
+        return $producto;
+    }
+
+    /**
+     * Cambia código, nombre y precio. El stock solo cambia con ventas y reposiciones.
+     * Las ventas anteriores no se afectan porque guardan su propio precio unitario.
+     */
+    public function actualizar(int $id, string $codigo, string $nombre, mixed $precio): void
+    {
+        $actual = $this->obtener($id);
+        $datos = $this->validador->crearProducto($codigo, $nombre, $precio, $actual->cantidad);
+
+        if ($this->productos->existeCodigo($datos->codigo, $id)) {
+            throw new ReglaNegocioException(
+                "No se pudo actualizar el producto: ese código ya está registrado."
+            );
+        }
+
+        $this->productos->actualizar(
+            new Producto($id, $datos->codigo, $datos->nombre, $datos->precio, $actual->cantidad)
+        );
+    }
+
+    /**
+     * Elimina un producto solo si nunca se ha vendido ni está en una venta en espera,
+     * para no dejar facturas del historial sin su producto.
+     */
+    public function eliminar(int $id): string
+    {
+        $producto = $this->obtener($id);
+
+        if ($this->productos->tieneMovimientos($id)) {
+            throw new ReglaNegocioException(
+                "No se puede eliminar \"" . $producto->nombre . "\" porque ya tiene ventas " .
+                "registradas o está en una venta en espera. Así se conserva el historial."
+            );
+        }
+
+        $this->productos->eliminar($id);
+
+        return $producto->nombre;
     }
 
     /**

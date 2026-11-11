@@ -61,10 +61,10 @@ class ProductoRepository implements ProductoRepositoryInterface
         return $this->aProductos($stmt->fetchAll());
     }
 
-    public function existeCodigo(string $codigo): bool
+    public function existeCodigo(string $codigo, int $exceptoId = 0): bool
     {
-        $stmt = $this->conexion->prepare("SELECT 1 FROM productos WHERE codigo = ?");
-        $stmt->execute([$codigo]);
+        $stmt = $this->conexion->prepare("SELECT 1 FROM productos WHERE codigo = ? AND id <> ?");
+        $stmt->execute([$codigo, $exceptoId]);
 
         return $stmt->fetchColumn() !== false;
     }
@@ -82,6 +82,31 @@ class ProductoRepository implements ProductoRepositoryInterface
         ]);
 
         return (int) $this->conexion->lastInsertId();
+    }
+
+    public function actualizar(Producto $producto): void
+    {
+        $stmt = $this->conexion->prepare(
+            "UPDATE productos SET codigo = ?, nombre = ?, precio = ? WHERE id = ?"
+        );
+        $stmt->execute([$producto->codigo, $producto->nombre, $producto->precio, $producto->id]);
+    }
+
+    public function tieneMovimientos(int $id): bool
+    {
+        $stmt = $this->conexion->prepare(
+            "SELECT (SELECT COUNT(*) FROM detalle_venta WHERE producto_id = ?) +
+                    (SELECT COUNT(*) FROM detalle_venta_pendiente WHERE producto_id = ?)"
+        );
+        $stmt->execute([$id, $id]);
+
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
+    public function eliminar(int $id): void
+    {
+        $stmt = $this->conexion->prepare("DELETE FROM productos WHERE id = ?");
+        $stmt->execute([$id]);
     }
 
     public function reponerSiAgotado(string $codigo, int $cantidad): bool

@@ -66,6 +66,7 @@
                     <th>Precio</th>
                     <th>Cantidad</th>
                     <th>Estado</th>
+                    <th>Acciones</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -76,6 +77,15 @@
                         <td>$<?= dinero($producto->precio) ?></td>
                         <td><?= $producto->cantidad ?></td>
                         <td><?php require BASE_PATH . "/app/Views/partials/estado_producto.php"; ?></td>
+                        <td class="text-nowrap">
+                            <a href="<?= url("productos/editar", ["id" => $producto->id]) ?>"
+                               class="btn btn-sm btn-outline-primary">Editar</a>
+                            <form method="POST" action="<?= url("productos/eliminar") ?>" class="d-inline"
+                                  onsubmit="return confirm('¿Eliminar el producto <?= e(addslashes($producto->nombre)) ?>?');">
+                                <input type="hidden" name="id" value="<?= $producto->id ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                            </form>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

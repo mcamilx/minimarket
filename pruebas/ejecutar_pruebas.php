@@ -174,12 +174,24 @@ comprobar("Retomar la venta recupera sus productos", $carrito->items()[2]->canti
 comprobar("Volver a guardarla conserva el mismo número", $servicioPendientes->guardar() === 1);
 
 /* ================= PRODUCTOS Y SESIÓN ================= */
-seccion("ProductoService y AuthService");
+seccion("ProductoService (registrar, editar, eliminar, reponer) y AuthService");
 $servicioProductos = new ProductoService(new ProductoRepositoryFalso($arroz, new Producto(3, "AZU01", "Azúcar", 2000, 0)), new ProductoValidator());
 comprobar("Código repetido es rechazado", mensajeDeError(fn () => $servicioProductos->registrar("ARR01", "Otro", "1", "1")) === "No se pudo registrar el producto: ese código ya está registrado.");
 comprobar("Reponer un producto agotado funciona", $servicioProductos->reponer("AZU01", "5")["tipo"] === "success");
 comprobar("Reponer un producto con stock da advertencia", $servicioProductos->reponer("ARR01", "5")["tipo"] === "warning");
 comprobar("Reponer un código inexistente da error", $servicioProductos->reponer("NADA", "5")["tipo"] === "danger");
+
+$repoEdicion = new ProductoRepositoryFalso($arroz, $leche, new Producto(3, "AZU01", "Azúcar", 2000, 0));
+$repoEdicion->conMovimientos = [1];
+$servicioEdicion = new ProductoService($repoEdicion, new ProductoValidator());
+$servicioEdicion->actualizar(2, "LEC01", "Leche entera", "4500");
+comprobar("Editar cambia nombre y precio", $repoEdicion->productos[2]->nombre === "Leche entera" && $repoEdicion->productos[2]->precio == 4500);
+comprobar("Editar no cambia el stock", $repoEdicion->productos[2]->cantidad === 10);
+comprobar("Editar con el código de otro producto es rechazado", str_starts_with((string) mensajeDeError(fn () => $servicioEdicion->actualizar(2, "ARR01", "Leche", "4500")), "No se pudo actualizar"));
+comprobar("Editar con precio inválido es rechazado", mensajeDeError(fn () => $servicioEdicion->actualizar(2, "LEC01", "Leche", "-5")) !== null);
+comprobar("Eliminar un producto sin ventas funciona", $servicioEdicion->eliminar(3) === "Azúcar" && !isset($repoEdicion->productos[3]));
+comprobar("Eliminar un producto con ventas es rechazado", str_starts_with((string) mensajeDeError(fn () => $servicioEdicion->eliminar(1)), "No se puede eliminar") && isset($repoEdicion->productos[1]));
+comprobar("Eliminar un producto inexistente es rechazado", mensajeDeError(fn () => $servicioEdicion->eliminar(99)) === "El producto no existe.");
 
 $_SESSION = [];
 $auth = new AuthService(new Sesion());

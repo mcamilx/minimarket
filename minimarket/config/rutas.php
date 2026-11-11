@@ -27,6 +27,9 @@ $router->post("logout", [AuthController::class, "logout"]);
 $router->get("productos", [ProductoController::class, "index"], $admin);
 $router->post("productos/registrar", [ProductoController::class, "registrar"], $admin);
 $router->post("productos/reponer", [ProductoController::class, "reponer"], $admin);
+$router->get("productos/editar", [ProductoController::class, "editar"], $admin);
+$router->post("productos/actualizar", [ProductoController::class, "actualizar"], $admin);
+$router->post("productos/eliminar", [ProductoController::class, "eliminar"], $admin);
 
 // Inventario
 $router->get("inventario", [InventarioController::class, "index"], $todos);

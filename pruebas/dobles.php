@@ -53,10 +53,13 @@ class ProductoRepositoryFalso implements ProductoRepositoryInterface
     public function listarDisponibles(): array { return array_values(array_filter($this->productos, fn ($p) => $p->cantidad > 0)); }
     public function buscar(string $texto): array { return array_values($this->productos); }
 
-    public function existeCodigo(string $codigo): bool
+    /** Ids de productos que ya aparecen en ventas (para probar la eliminación). */
+    public array $conMovimientos = [];
+
+    public function existeCodigo(string $codigo, int $exceptoId = 0): bool
     {
         foreach ($this->productos as $producto) {
-            if ($producto->codigo === $codigo) {
+            if ($producto->codigo === $codigo && $producto->id !== $exceptoId) {
                 return true;
             }
         }
@@ -69,6 +72,10 @@ class ProductoRepositoryFalso implements ProductoRepositoryInterface
         $this->productos[$id] = new Producto($id, $producto->codigo, $producto->nombre, $producto->precio, $producto->cantidad);
         return $id;
     }
+
+    public function actualizar(Producto $producto): void { $this->productos[$producto->id] = $producto; }
+    public function tieneMovimientos(int $id): bool { return in_array($id, $this->conMovimientos, true); }
+    public function eliminar(int $id): void { unset($this->productos[$id]); }
 
     public function reponerSiAgotado(string $codigo, int $cantidad): bool
     {
