@@ -49,8 +49,18 @@ class ProductoRepositoryFalso implements ProductoRepositoryInterface
     }
 
     public function buscarPorId(int $id): ?Producto { return $this->productos[$id] ?? null; }
+
+    public function buscarPorCodigo(string $codigo): ?Producto
+    {
+        foreach ($this->productos as $producto) {
+            if ($producto->codigo === $codigo) {
+                return $producto;
+            }
+        }
+        return null;
+    }
     public function listarRecientes(): array { return array_values($this->productos); }
-    public function listarDisponibles(): array { return array_values(array_filter($this->productos, fn ($p) => $p->cantidad > 0)); }
+    public function listarDisponibles(): array { return array_values(array_filter($this->productos, fn ($p) => $p->estaDisponible())); }
     public function buscar(string $texto): array { return array_values($this->productos); }
 
     /** Ids de productos que ya aparecen en ventas (para probar la eliminación). */
@@ -80,20 +90,26 @@ class ProductoRepositoryFalso implements ProductoRepositoryInterface
     public function reponerSiAgotado(string $codigo, int $cantidad): bool
     {
         foreach ($this->productos as $id => $p) {
-            if ($p->codigo === $codigo && $p->cantidad === 0) {
-                $this->productos[$id] = new Producto($id, $p->codigo, $p->nombre, $p->precio, $cantidad);
+            if ($p->codigo === $codigo && $p->cantidad === 0 && $p->activo) {
+                $this->productos[$id] = new Producto($id, $p->codigo, $p->nombre, $p->precio, $cantidad, $p->activo);
                 return true;
             }
         }
         return false;
     }
 
-    public function obtenerStockBloqueado(int $id): ?int { return isset($this->productos[$id]) ? $this->productos[$id]->cantidad : null; }
+    public function bloquearParaVenta(int $id): ?Producto { return $this->productos[$id] ?? null; }
+
+    public function cambiarEstado(int $id, bool $activo): void
+    {
+        $p = $this->productos[$id];
+        $this->productos[$id] = new Producto($id, $p->codigo, $p->nombre, $p->precio, $p->cantidad, $activo);
+    }
 
     public function descontarStock(int $id, int $cantidad): void
     {
         $p = $this->productos[$id];
-        $this->productos[$id] = new Producto($id, $p->codigo, $p->nombre, $p->precio, $p->cantidad - $cantidad);
+        $this->productos[$id] = new Producto($id, $p->codigo, $p->nombre, $p->precio, $p->cantidad - $cantidad, $p->activo);
     }
 
     public function estadisticas(): array { return ["total_productos" => count($this->productos), "total_unidades" => 0]; }

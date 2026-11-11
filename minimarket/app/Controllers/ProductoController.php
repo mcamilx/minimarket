@@ -9,7 +9,8 @@ use App\Services\AuthService;
 use App\Services\ProductoService;
 
 /*
- * Gestión de productos (solo administrador): registrar, editar, eliminar y reponer.
+ * Gestión de productos (solo administrador): registrar, editar, eliminar,
+ * descontinuar/reactivar y reponer.
  */
 class ProductoController extends Controller
 {
@@ -88,6 +89,30 @@ class ProductoController extends Controller
             $this->sesion->flash("Producto \"" . $nombre . "\" eliminado correctamente.", "success");
         } catch (ReglaNegocioException $error) {
             $this->sesion->flash($error->getMessage(), "danger");
+        }
+
+        $this->redirigir("productos");
+    }
+
+    /** POST ruta=productos/descontinuar */
+    public function descontinuar(): void
+    {
+        $this->cambiarEstado(false);
+    }
+
+    /** POST ruta=productos/reactivar */
+    public function reactivar(): void
+    {
+        $this->cambiarEstado(true);
+    }
+
+    private function cambiarEstado(bool $activo): void
+    {
+        try {
+            $mensaje = $this->productos->cambiarEstado($this->entero("id"), $activo);
+            $this->sesion->flash($mensaje, "success");
+        } catch (ReglaNegocioException $error) {
+            $this->sesion->flash($error->getMessage(), "warning");
         }
 
         $this->redirigir("productos");

@@ -12,7 +12,8 @@ class Producto
         public readonly string $codigo,
         public readonly string $nombre,
         public readonly float $precio,
-        public readonly int $cantidad
+        public readonly int $cantidad,
+        public readonly bool $activo = true
     ) {
     }
 
@@ -24,12 +25,29 @@ class Producto
             $fila["codigo"],
             $fila["nombre"],
             (float) $fila["precio"],
-            (int) $fila["cantidad"]
+            (int) $fila["cantidad"],
+            (bool) ($fila["activo"] ?? true)
         );
     }
 
+    /** Disponible = se sigue vendiendo y tiene unidades. */
     public function estaDisponible(): bool
     {
-        return $this->cantidad > 0;
+        return $this->activo && $this->cantidad > 0;
+    }
+
+    public function estaDescontinuado(): bool
+    {
+        return !$this->activo;
+    }
+
+    /** Estado que se muestra en pantalla. */
+    public function estado(): string
+    {
+        if ($this->estaDescontinuado()) {
+            return "Descontinuado";
+        }
+
+        return $this->cantidad > 0 ? "Disponible" : "Agotado";
     }
 }

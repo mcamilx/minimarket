@@ -27,6 +27,7 @@
             </div>
             <p class="text-muted mt-3 mb-0">
                 Stock actual: <strong><?= $producto->cantidad ?></strong> unidades.
+                Estado: <strong><?= e($producto->estado()) ?></strong>.
                 El stock cambia con las ventas y con la opción "Reponer producto agotado".
                 Cambiar el precio no modifica las ventas ya registradas.
             </p>

@@ -50,13 +50,19 @@ class VentaService
                 $ventaId = $this->ventas->crear($total, $metodoPago, $montoPagado, $cliente);
 
                 foreach ($items as $item) {
-                    $stock = $this->productos->obtenerStockBloqueado($item->productoId);
+                    $producto = $this->productos->bloquearParaVenta($item->productoId);
 
-                    if ($stock === null) {
+                    if ($producto === null) {
                         throw new ReglaNegocioException("Uno de los productos ya no existe.");
                     }
 
-                    if ($stock < $item->cantidad) {
+                    if ($producto->estaDescontinuado()) {
+                        throw new ReglaNegocioException(
+                            $item->nombre . " está descontinuado y ya no se vende. Quítalo de la venta."
+                        );
+                    }
+
+                    if ($producto->cantidad < $item->cantidad) {
                         throw new ReglaNegocioException(
                             "No hay suficiente inventario de " . $item->nombre . "."
                         );

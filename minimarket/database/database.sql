@@ -8,7 +8,8 @@ CREATE TABLE productos (
     codigo VARCHAR(30) NOT NULL UNIQUE,
     nombre VARCHAR(100) NOT NULL,
     precio DECIMAL(10,2) NOT NULL,
-    cantidad INT NOT NULL DEFAULT 0
+    cantidad INT NOT NULL DEFAULT 0,
+    activo TINYINT(1) NOT NULL DEFAULT 1 -- 1 = se vende, 0 = descontinuado
 );
 
 -- Tabla de ventas

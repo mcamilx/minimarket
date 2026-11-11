@@ -51,6 +51,10 @@ class CarritoService
             throw new ReglaNegocioException("El producto no existe.");
         }
 
+        if ($producto->estaDescontinuado()) {
+            throw new ReglaNegocioException("El producto está descontinuado y ya no se vende.");
+        }
+
         if ($cantidad <= 0) {
             throw new ReglaNegocioException("La cantidad debe ser mayor que cero.");
         }

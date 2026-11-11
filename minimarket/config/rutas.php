@@ -30,6 +30,8 @@ $router->post("productos/reponer", [ProductoController::class, "reponer"], $admi
 $router->get("productos/editar", [ProductoController::class, "editar"], $admin);
 $router->post("productos/actualizar", [ProductoController::class, "actualizar"], $admin);
 $router->post("productos/eliminar", [ProductoController::class, "eliminar"], $admin);
+$router->post("productos/descontinuar", [ProductoController::class, "descontinuar"], $admin);
+$router->post("productos/reactivar", [ProductoController::class, "reactivar"], $admin);
 
 // Inventario
 $router->get("inventario", [InventarioController::class, "index"], $todos);

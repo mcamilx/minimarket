@@ -18,9 +18,18 @@ class ProductoRepository implements ProductoRepositoryInterface
     public function buscarPorId(int $id): ?Producto
     {
         $stmt = $this->conexion->prepare(
-            "SELECT id, codigo, nombre, precio, cantidad FROM productos WHERE id = ?"
+            "SELECT * FROM productos WHERE id = ?"
         );
         $stmt->execute([$id]);
+        $fila = $stmt->fetch();
+
+        return $fila ? Producto::desdeFila($fila) : null;
+    }
+
+    public function buscarPorCodigo(string $codigo): ?Producto
+    {
+        $stmt = $this->conexion->prepare("SELECT * FROM productos WHERE codigo = ?");
+        $stmt->execute([$codigo]);
         $fila = $stmt->fetch();
 
         return $fila ? Producto::desdeFila($fila) : null;
@@ -37,7 +46,7 @@ class ProductoRepository implements ProductoRepositoryInterface
     {
         return $this->aProductos(
             $this->conexion->query(
-                "SELECT * FROM productos WHERE cantidad > 0 ORDER BY nombre ASC"
+                "SELECT * FROM productos WHERE cantidad > 0 AND activo = 1 ORDER BY nombre ASC"
             )->fetchAll()
         );
     }
@@ -112,22 +121,29 @@ class ProductoRepository implements ProductoRepositoryInterface
     public function reponerSiAgotado(string $codigo, int $cantidad): bool
     {
         $stmt = $this->conexion->prepare(
-            "UPDATE productos SET cantidad = cantidad + ? WHERE codigo = ? AND cantidad = 0"
+            "UPDATE productos SET cantidad = cantidad + ?
+             WHERE codigo = ? AND cantidad = 0 AND activo = 1"
         );
         $stmt->execute([$cantidad, $codigo]);
 
         return $stmt->rowCount() === 1;
     }
 
-    public function obtenerStockBloqueado(int $id): ?int
+    public function cambiarEstado(int $id, bool $activo): void
+    {
+        $stmt = $this->conexion->prepare("UPDATE productos SET activo = ? WHERE id = ?");
+        $stmt->execute([$activo ? 1 : 0, $id]);
+    }
+
+    public function bloquearParaVenta(int $id): ?Producto
     {
         $stmt = $this->conexion->prepare(
-            "SELECT cantidad FROM productos WHERE id = ? FOR UPDATE"
+            "SELECT * FROM productos WHERE id = ? FOR UPDATE"
         );
         $stmt->execute([$id]);
-        $cantidad = $stmt->fetchColumn();
+        $fila = $stmt->fetch();
 
-        return $cantidad === false ? null : (int) $cantidad;
+        return $fila ? Producto::desdeFila($fila) : null;
     }
 
     public function descontarStock(int $id, int $cantidad): void

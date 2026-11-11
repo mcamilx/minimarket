@@ -80,7 +80,8 @@ comprobar("Subtotal = precio x cantidad (2 x 3500 = 7000)", $items[1]->subtotal(
 comprobar("Total = suma de subtotales (19600)", (new CalculadoraVenta())->total($items) == 19600);
 comprobar("Total de una venta vacía = 0", (new CalculadoraVenta())->total([]) == 0);
 comprobar("ItemCarrito se convierte a arreglo y vuelve igual", ItemCarrito::desdeArreglo($items[2]->aArreglo()) == $items[2]);
-comprobar("Producto con stock 0 está agotado", !(new Producto(3, "X", "X", 1, 0))->estaDisponible());
+comprobar("Producto con stock 0 está agotado", (new Producto(3, "X", "X", 1, 0))->estado() === "Agotado");
+comprobar("Producto descontinuado no está disponible aunque tenga stock", (new Producto(3, "X", "X", 1, 5, false))->estado() === "Descontinuado");
 comprobar("Usuario se crea desde un rol válido", Usuario::desdeRol("cajero")?->nombre === "Cajero");
 comprobar("Usuario no se crea desde un rol inválido", Usuario::desdeRol("hacker") === null);
 
@@ -192,6 +193,23 @@ comprobar("Editar con precio inválido es rechazado", mensajeDeError(fn () => $s
 comprobar("Eliminar un producto sin ventas funciona", $servicioEdicion->eliminar(3) === "Azúcar" && !isset($repoEdicion->productos[3]));
 comprobar("Eliminar un producto con ventas es rechazado", str_starts_with((string) mensajeDeError(fn () => $servicioEdicion->eliminar(1)), "No se puede eliminar") && isset($repoEdicion->productos[1]));
 comprobar("Eliminar un producto inexistente es rechazado", mensajeDeError(fn () => $servicioEdicion->eliminar(99)) === "El producto no existe.");
+
+/* ================= PRODUCTOS DESCONTINUADOS ================= */
+seccion("Productos descontinuados");
+$galletas = new Producto(4, "GAL01", "Galletas", 1500, 8, false);
+$repoEstado = new ProductoRepositoryFalso($arroz, $galletas);
+$servicioEstado = new ProductoService($repoEstado, new ProductoValidator());
+comprobar("Descontinuar un producto activo funciona", str_contains($servicioEstado->cambiarEstado(1, false), "descontinuado") && $repoEstado->productos[1]->estaDescontinuado());
+comprobar("Descontinuar dos veces avisa que ya lo está", str_contains((string) mensajeDeError(fn () => $servicioEstado->cambiarEstado(1, false)), "ya está descontinuado"));
+comprobar("Reactivar lo vuelve a poner a la venta", str_contains($servicioEstado->cambiarEstado(1, true), "reactivó") && !$repoEstado->productos[1]->estaDescontinuado());
+comprobar("El descontinuado no aparece en la lista para vender", count(array_filter($servicioEstado->listarDisponibles(), fn ($p) => $p->id === 4)) === 0);
+comprobar("No se puede reponer un descontinuado", $servicioEstado->reponer("GAL01", "5")["tipo"] === "warning");
+$_SESSION = [];
+$carritoEstado = new CarritoService(new Sesion(), $repoEstado, new CalculadoraVenta());
+comprobar("No se puede agregar un descontinuado al carrito", mensajeDeError(fn () => $carritoEstado->agregar(4, 1)) === "El producto está descontinuado y ya no se vende.");
+$transaccion = new TransaccionFalsa();
+$error = mensajeDeError(fn () => crearVentaService($repoEstado, null, null, $transaccion)->registrar([ItemCarrito::desdeProducto($galletas, 1)], $sinCliente, "Efectivo", 5000));
+comprobar("No se puede cobrar un descontinuado (venta en espera vieja) y hace rollback", str_contains((string) $error, "descontinuado") && $transaccion->revertida);
 
 $_SESSION = [];
 $auth = new AuthService(new Sesion());

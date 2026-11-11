@@ -85,6 +85,18 @@
                                 <input type="hidden" name="id" value="<?= $producto->id ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
                             </form>
+                            <?php if ($producto->estaDescontinuado()): ?>
+                                <form method="POST" action="<?= url("productos/reactivar") ?>" class="d-inline">
+                                    <input type="hidden" name="id" value="<?= $producto->id ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-success">Reactivar</button>
+                                </form>
+                            <?php else: ?>
+                                <form method="POST" action="<?= url("productos/descontinuar") ?>" class="d-inline"
+                                      onsubmit="return confirm('¿Marcar <?= e(addslashes($producto->nombre)) ?> como descontinuado? Ya no aparecerá en las ventas.');">
+                                    <input type="hidden" name="id" value="<?= $producto->id ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Descontinuar</button>
+                                </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

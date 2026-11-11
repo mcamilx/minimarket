@@ -8,7 +8,8 @@ use App\Repositories\Contracts\ProductoRepositoryInterface;
 use App\Validators\ProductoValidator;
 
 /*
- * Reglas de negocio de los productos: registrar, editar, eliminar, reponer y consultar.
+ * Reglas de negocio de los productos: registrar, editar, eliminar,
+ * descontinuar/reactivar, reponer y consultar.
  */
 class ProductoService
 {
@@ -76,7 +77,7 @@ class ProductoService
         }
 
         $this->productos->actualizar(
-            new Producto($id, $datos->codigo, $datos->nombre, $datos->precio, $actual->cantidad)
+            new Producto($id, $datos->codigo, $datos->nombre, $datos->precio, $actual->cantidad, $actual->activo)
         );
     }
 
@@ -91,13 +92,35 @@ class ProductoService
         if ($this->productos->tieneMovimientos($id)) {
             throw new ReglaNegocioException(
                 "No se puede eliminar \"" . $producto->nombre . "\" porque ya tiene ventas " .
-                "registradas o está en una venta en espera. Así se conserva el historial."
+                "registradas o está en una venta en espera. Así se conserva el historial. " .
+                "Si ya no se va a vender, márcalo como descontinuado."
             );
         }
 
         $this->productos->eliminar($id);
 
         return $producto->nombre;
+    }
+
+    /**
+     * Descontinuar: el producto deja de venderse pero se conserva en el historial.
+     * Reactivar: vuelve a venderse.
+     */
+    public function cambiarEstado(int $id, bool $activo): string
+    {
+        $producto = $this->obtener($id);
+
+        if ($producto->activo === $activo) {
+            throw new ReglaNegocioException(
+                "\"" . $producto->nombre . "\" ya está " . ($activo ? "activo." : "descontinuado.")
+            );
+        }
+
+        $this->productos->cambiarEstado($id, $activo);
+
+        return $activo
+            ? "\"" . $producto->nombre . "\" se reactivó y vuelve a estar a la venta."
+            : "\"" . $producto->nombre . "\" quedó descontinuado: ya no aparece en las ventas, pero se conserva en el historial.";
     }
 
     /**
@@ -115,15 +138,24 @@ class ProductoService
             ];
         }
 
+        $producto = $this->productos->buscarPorCodigo($codigo);
+
+        if ($producto === null) {
+            return ["tipo" => "danger", "mensaje" => "No existe un producto con ese código."];
+        }
+
+        if ($producto->estaDescontinuado()) {
+            return [
+                "tipo" => "warning",
+                "mensaje" => "El producto está descontinuado. Reactívalo antes de reponer su stock."
+            ];
+        }
+
         if ($this->productos->reponerSiAgotado($codigo, $cantidad)) {
             return [
                 "tipo" => "success",
                 "mensaje" => "Stock repuesto correctamente. El producto ya está disponible para venderse."
             ];
-        }
-
-        if (!$this->productos->existeCodigo($codigo)) {
-            return ["tipo" => "danger", "mensaje" => "No existe un producto con ese código."];
         }
 
         return [
