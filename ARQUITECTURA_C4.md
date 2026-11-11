@@ -51,7 +51,7 @@ C4Container
 
     System_Boundary(sistema, "Sistema Minimarket") {
         Container(navegador, "Navegador web", "Chrome, Edge u otro", "Muestra las páginas HTML y envía formularios HTTP.")
-        Container(aplicacion, "Aplicación web", "PHP 8.2, HTML, Bootstrap y JavaScript", "Procesa solicitudes, sesiones, permisos, reglas de negocio y vistas.")
+        Container(aplicacion, "Aplicación web", "PHP 8 (MVC propio), PDO, Bootstrap 5 y JavaScript", "Organizada en capas: controladores, servicios, repositorios, modelos y vistas.")
         ContainerDb(baseDatos, "Base de datos", "MySQL / minimarket_db", "Guarda productos, ventas completadas y ventas en espera.")
     }
 
@@ -66,60 +66,71 @@ C4Container
 
 ## 3. C4 — Diagrama de componentes
 
-Los componentes corresponden a las páginas y archivos PHP que organizan la
-aplicación. `auth.php`, `navbar.php` y `conexion.php` son compartidos por las
-páginas que los requieren.
+La aplicación web sigue el patrón **MVC (Modelo–Vista–Controlador)** con dos
+capas adicionales: **servicios** (reglas de negocio) y **repositorios**
+(acceso a datos). Todas las solicitudes entran por un único archivo,
+`index.php` (patrón *Front Controller*), y el `Router` decide qué controlador
+las atiende.
 
 ```mermaid
 C4Component
-    title Componentes de la aplicación web Minimarket
+    title Componentes de la aplicación web Minimarket (arquitectura MVC por capas)
+
+    Person(usuario, "Administrador o cajero", "Usa el sistema desde el navegador.")
 
     Container_Boundary(app, "Aplicación web PHP") {
-        Component(inicio, "index.php", "PHP", "Selección de perfil, panel y estadísticas.")
-        Component(auth, "auth.php", "PHP / sesiones", "Obtiene el usuario actual y restringe acceso por rol.")
-        Component(nav, "navbar.php", "PHP / HTML", "Navegación común, perfil, regreso al panel y cierre de sesión.")
-        Component(productos, "productos.php", "PHP", "Registro y consulta de productos; solo administrador.")
-        Component(inventario, "inventario.php", "PHP", "Consulta y búsqueda de productos y existencias.")
-        Component(venta, "venta.php", "PHP / sesión", "Carrito, guardado y recuperación de ventas pendientes.")
-        Component(factura, "factura.php", "PHP", "Validación del cobro, registro transaccional y emisión de factura.")
-        Component(historial, "historial.php", "PHP", "Consulta de ventas finalizadas y pendientes; filtro del administrador.")
-        Component(conexion, "conexion.php", "MySQLi", "Conexión a minimarket_db.")
-        Component(js, "script.js", "JavaScript", "Ayuda de interfaz para la selección de pago y el formulario.")
+        Component(front, "index.php + Router", "Front Controller", "Recibe todas las solicitudes, revisa permisos por rol y elige el controlador.")
+        Component(contenedor, "Contenedor", "Inyección de dependencias", "Crea y conecta controladores, servicios y repositorios.")
+        Component(controladores, "Controllers", "PHP", "Leen la solicitud, llaman al servicio y eligen la vista.")
+        Component(servicios, "Services", "PHP", "Reglas de negocio: ventas, carrito, ventas en espera, productos, historial.")
+        Component(pagos, "Services/Pagos", "Strategy + Factory", "Validación del pago y cálculo del cambio por método.")
+        Component(validadores, "Validators", "PHP", "Validación de datos del cliente y de productos.")
+        Component(repositorios, "Repositories", "PDO", "Único lugar con SQL; implementan interfaces (Contracts).")
+        Component(modelos, "Models", "PHP", "Producto, Venta, ItemCarrito, Cliente, Factura, Usuario, VentaPendiente.")
+        Component(vistas, "Views", "PHP + Bootstrap 5", "Plantilla general y una vista por pantalla.")
+        Component(nucleo, "Core", "PHP", "Database (Singleton), Transaccion, Sesion, Vista, Controller base.")
     }
 
-    ContainerDb(db, "MySQL / minimarket_db", "MySQL", "Persistencia del sistema.")
+    ContainerDb(db, "MariaDB / minimarket_db", "MySQL", "Persistencia del sistema.")
 
-    Rel(inicio, auth, "Usa sesión y rol")
-    Rel(inicio, conexion, "Consulta estadísticas")
-    Rel(productos, auth, "Exige rol administrador")
-    Rel(inventario, auth, "Exige perfil válido")
-    Rel(venta, auth, "Exige perfil válido")
-    Rel(factura, auth, "Exige perfil válido")
-    Rel(historial, auth, "Exige perfil válido")
-    Rel(inicio, nav, "Incluye navegación al entrar")
-    Rel(productos, nav, "Incluye navegación")
-    Rel(inventario, nav, "Incluye navegación")
-    Rel(venta, nav, "Incluye navegación")
-    Rel(factura, nav, "Incluye navegación")
-    Rel(historial, nav, "Incluye navegación")
-    Rel(productos, conexion, "Lee y registra productos")
-    Rel(inventario, conexion, "Lee productos")
-    Rel(venta, conexion, "Lee productos y persiste pendientes")
-    Rel(factura, conexion, "Registra venta, detalles y existencias")
-    Rel(historial, conexion, "Consulta ventas")
-    Rel(venta, js, "Carga ayuda de interfaz")
-    Rel(conexion, db, "Ejecuta SQL", "MySQLi")
+    Rel(usuario, front, "Solicitudes HTTP", "index.php?ruta=...")
+    Rel(front, contenedor, "Pide el controlador")
+    Rel(front, controladores, "Llama a la acción")
+    Rel(controladores, servicios, "Delegan la lógica")
+    Rel(controladores, validadores, "Validan formularios")
+    Rel(controladores, vistas, "Renderizan")
+    Rel(servicios, pagos, "Usan la estrategia de pago")
+    Rel(servicios, repositorios, "Usan mediante interfaces")
+    Rel(repositorios, modelos, "Devuelven modelos")
+    Rel(repositorios, nucleo, "Usan la conexión PDO")
+    Rel(nucleo, db, "Ejecuta SQL", "PDO")
 ```
+
+### Responsabilidad de cada capa
+
+| Capa | Carpeta | Responsabilidad | Ejemplo |
+|---|---|---|---|
+| Entrada | `minimarket/index.php`, `config/rutas.php` | Recibir la solicitud y enrutarla. | `ruta=ventas/finalizar` → `VentaController::finalizar()` |
+| Controlador | `app/Controllers` | Leer el formulario, llamar al servicio y elegir la vista. No tiene SQL ni reglas de negocio. | `VentaController` |
+| Servicio | `app/Services` | Reglas de negocio y coordinación de transacciones. | `VentaService::registrar()` |
+| Repositorio | `app/Repositories` | Consultas SQL con PDO. Implementa una interfaz de `Contracts`. | `ProductoRepository::descontarStock()` |
+| Modelo | `app/Models` | Representar los datos del negocio y sus reglas simples. | `ItemCarrito::subtotal()` |
+| Vista | `app/Views` | Mostrar HTML con Bootstrap. No consulta la base de datos. | `ventas/factura.php` |
+| Núcleo | `app/Core` | Piezas comunes: conexión, transacción, sesión, enrutador. | `Database::obtenerConexion()` |
 
 ### Tablas principales
 
 | Tabla | Uso |
 |---|---|
-| `productos` | Catálogo y stock disponible. |
+| `productos` | Catálogo, stock disponible y estado (`activo` = 1 se vende, 0 descontinuado). |
 | `ventas` | Ventas cobradas, método de pago, cliente y estado. |
 | `detalle_venta` | Líneas de productos incluidas en cada venta cobrada. |
 | `ventas_pendientes` | Encabezado y total de una venta guardada en espera. |
 | `detalle_venta_pendiente` | Productos, precios y cantidades de la venta en espera. |
+
+Un producto con ventas registradas no se elimina, para no dejar facturas sin su
+producto; en su lugar se marca como **descontinuado**: deja de aparecer en las
+ventas y no se puede reponer, pero se conserva en el historial.
 
 Las ventas en espera se almacenan separadas de las ventas cobradas. No reducen
 el stock ni reservan un número de factura; al cobrarlas se crea el registro
@@ -128,170 +139,169 @@ transacción.
 
 ## 4. Vista de código y dependencias
 
-Las páginas siguen siendo PHP procedural, pero el flujo de ventas ahora usa
-clases pequeñas para aplicar tres patrones de diseño: Repository, Strategy y
-Factory. El siguiente diagrama muestra estos elementos implementados y sus
-dependencias reales.
+El diagrama muestra las clases que participan en el flujo de ventas y sus
+dependencias. Las flechas punteadas indican que una clase implementa una
+interfaz.
 
 ```mermaid
 flowchart LR
-    subgraph PHP["Archivos PHP"]
-        Index["index.php<br/>inicio, perfiles y panel"]
-        Auth["auth.php<br/>sesión y autorización"]
-        Nav["navbar.php<br/>navegación compartida"]
-        Products["productos.php<br/>gestión de productos"]
-        Inventory["inventario.php<br/>consulta de stock"]
-        Sale["venta.php<br/>carrito y ventas pendientes"]
-        Invoice["factura.php<br/>cobro y factura"]
-        History["historial.php<br/>historial y búsqueda"]
-        Connection["conexion.php<br/>conexión MySQLi"]
-        Patterns["patrones_diseno.php<br/>patrones aplicados al flujo"]
-        ProductRepo["ProductoRepository<br/>búsqueda y reposición de stock"]
-        PaymentStrategy["MetodoPagoStrategy<br/>validación y cambio"]
-        CashPayment["PagoEfectivoStrategy"]
-        CardPayment["PagoTarjetaStrategy"]
-        PaymentFactory["MetodoPagoFactory<br/>creación de estrategia"]
+    subgraph Controladores
+        VC["VentaController"]
     end
 
-    subgraph Data["MySQL / minimarket_db"]
-        ProductTable[("productos")]
-        SalesTable[("ventas")]
-        DetailTable[("detalle_venta")]
-        PendingTable[("ventas_pendientes")]
-        PendingDetailTable[("detalle_venta_pendiente")]
+    subgraph Servicios
+        VS["VentaService"]
+        CS["CarritoService"]
+        VPS["VentaPendienteService"]
+        CALC["CalculadoraVenta"]
+        FAB["MetodoPagoFactory"]
+        EST["MetodoPagoStrategy"]
+        EF["PagoEfectivoStrategy"]
+        TA["PagoTarjetaStrategy"]
     end
 
-    Index --> Auth
-    Products --> Auth
-    Inventory --> Auth
-    Sale --> Auth
-    Invoice --> Auth
-    History --> Auth
+    subgraph Validadores
+        CV["ClienteValidator"]
+    end
 
-    Index -. incluye .-> Nav
-    Products -. incluye .-> Nav
-    Inventory -. incluye .-> Nav
-    Sale -. incluye .-> Nav
-    Invoice -. incluye .-> Nav
-    History -. incluye .-> Nav
+    subgraph Repositorios
+        IPR["ProductoRepositoryInterface"]
+        IVR["VentaRepositoryInterface"]
+        IVPR["VentaPendienteRepositoryInterface"]
+        PR["ProductoRepository"]
+        VR["VentaRepository"]
+        VPR["VentaPendienteRepository"]
+    end
 
-    Index --> Connection
-    Products --> Connection
-    Inventory --> Connection
-    Sale --> Connection
-    Invoice --> Connection
-    History --> Connection
+    subgraph Nucleo["Core"]
+        DB["Database (Singleton)"]
+        TX["Transaccion"]
+        SE["Sesion"]
+    end
 
-    Connection --> ProductTable
-    Connection --> SalesTable
-    Connection --> DetailTable
-    Connection --> PendingTable
-    Connection --> PendingDetailTable
-
-    Products --> ProductTable
-    Inventory --> ProductTable
-    Sale --> ProductTable
-    Sale --> Patterns
-    Sale --> ProductRepo
-    ProductRepo --> ProductTable
-    Patterns --> ProductRepo
-    Patterns --> PaymentStrategy
-    Patterns --> PaymentFactory
-    Invoice --> Patterns
-    Invoice --> PaymentFactory
-    PaymentFactory --> CashPayment
-    PaymentFactory --> CardPayment
-    CashPayment -. implementa .-> PaymentStrategy
-    CardPayment -. implementa .-> PaymentStrategy
-    Sale --> PendingTable
-    Sale --> PendingDetailTable
-    Invoice --> ProductTable
-    Invoice --> SalesTable
-    Invoice --> DetailTable
-    Invoice --> PendingTable
-    History --> SalesTable
-    History --> PendingTable
+    VC --> VS
+    VC --> CS
+    VC --> VPS
+    VC --> CV
+    VS --> CALC
+    VS --> FAB
+    VS --> TX
+    VS --> IVR
+    VS --> IPR
+    VS --> IVPR
+    VPS --> CS
+    VPS --> IVPR
+    VPS --> TX
+    CS --> SE
+    CS --> IPR
+    CS --> CALC
+    FAB --> EF
+    FAB --> TA
+    EF -. implementa .-> EST
+    TA -. implementa .-> EST
+    PR -. implementa .-> IPR
+    VR -. implementa .-> IVR
+    VPR -. implementa .-> IVPR
+    PR --> DB
+    VR --> DB
+    VPR --> DB
+    TX --> DB
 ```
 
 ### Patrones de diseño implementados
 
-1. **Repository — `ProductoRepository`:** concentra las consultas usadas por
-   el flujo de ventas para buscar un producto por identificador y listar los
-   productos disponibles. También ofrece la operación de reponer un producto
-   agotado por su código, usada por la gestión de productos. `venta.php` y
-   `productos.php` solicitan estas operaciones al repositorio en vez de
-   construir esas consultas directamente. Esto permite separar el acceso a
-   productos del procesamiento de las pantallas.
-2. **Strategy — `MetodoPagoStrategy`:** define un contrato común para validar
-   un pago y calcular el cambio. `PagoEfectivoStrategy` calcula el cambio en
-   efectivo; `PagoTarjetaStrategy` devuelve cero. Cada estrategia rechaza un
-   monto inferior al total.
-3. **Factory — `MetodoPagoFactory`:** elige y construye la estrategia
-   correspondiente a `"Efectivo"` o `"Tarjeta"`. `factura.php` trabaja con el
-   contrato común, sin tener que decidir cómo se calcula el cambio para cada
-   método.
+1. **MVC (Modelo–Vista–Controlador):** separa los datos (`Models`), la
+   presentación (`Views`) y el manejo de solicitudes (`Controllers`).
+2. **Front Controller — `index.php` + `Router`:** todas las solicitudes entran
+   por un solo archivo; los permisos por rol se revisan en un único lugar
+   (`config/rutas.php`).
+3. **Service Layer — `app/Services`:** las reglas de negocio quedan fuera de
+   los controladores y se pueden probar sin navegador.
+4. **Repository — `app/Repositories`:** cada tabla tiene un repositorio que
+   concentra su SQL. Los servicios dependen de las interfaces de
+   `Repositories/Contracts` (principio de inversión de dependencias), por eso
+   las pruebas pueden usar repositorios falsos en memoria.
+5. **Singleton — `Database`:** garantiza una sola conexión PDO por solicitud.
+6. **Strategy — `MetodoPagoStrategy`:** `PagoEfectivoStrategy` calcula el
+   cambio; `PagoTarjetaStrategy` devuelve cero. Ambas rechazan un pago menor al
+   total.
+7. **Factory — `MetodoPagoFactory`:** crea la estrategia según el método
+   elegido. Agregar un método nuevo solo requiere una clase y una línea en la
+   fábrica.
+8. **Inyección de dependencias — `Contenedor`:** cada clase recibe por su
+   constructor lo que necesita; el contenedor es el único lugar donde se arman
+   los objetos.
 
-Estas implementaciones conservan los métodos de pago, las reglas de cobro y el
-flujo de inventario ya existentes. Se encuentran en
-[`minimarket/patrones_diseno.php`](./minimarket/patrones_diseno.php).
+### Principios SOLID aplicados
+
+| Principio | Dónde se ve |
+|---|---|
+| Responsabilidad única (S) | Cada clase tiene una sola tarea: `ClienteValidator` valida, `VentaRepository` guarda, `VentaController` coordina la pantalla. |
+| Abierto/cerrado (O) | Un método de pago nuevo se agrega con una clase nueva, sin modificar `VentaService`. |
+| Sustitución de Liskov (L) | Cualquier `MetodoPagoStrategy` o implementación de un repositorio se puede usar en lugar de otra. |
+| Segregación de interfaces (I) | Hay una interfaz por repositorio, con solo los métodos que ese repositorio ofrece. |
+| Inversión de dependencias (D) | Los servicios dependen de `Contracts/*Interface`, no de las clases con SQL. |
 
 ## 5. C4+1 — Diagrama de secuencia
 
-La vista dinámica siguiente documenta el escenario principal solicitado:
-guardar una venta en espera, atender otra operación, recuperar la primera y
-cobrarla. Los mensajes al navegador representan respuestas HTTP renderizadas;
-las escrituras de finalización se agrupan en una transacción.
+Escenario principal: guardar una venta en espera, retomarla y cobrarla.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Cajero
     participant Navegador
-    participant Venta as venta.php
-    participant Sesion as Sesión PHP
+    participant Router as index.php + Router
+    participant VC as VentaController
+    participant CS as CarritoService
+    participant VPS as VentaPendienteService
+    participant VS as VentaService
+    participant Repos as Repositorios
     participant MySQL
-    participant Factura as factura.php
 
-    Cajero->>Navegador: Agrega productos y cantidades
-    Navegador->>Venta: POST agregar productos
-    Venta->>MySQL: Consulta productos y precios
-    MySQL-->>Venta: Datos actuales del catálogo
-    Venta->>Sesion: Guarda líneas en carrito
-    Venta-->>Navegador: Muestra carrito y total
+    Cajero->>Navegador: Agrega productos
+    Navegador->>Router: POST ruta=ventas/agregar
+    Router->>VC: agregar()
+    VC->>CS: agregar(productoId, cantidad)
+    CS->>Repos: buscarPorId()
+    Repos->>MySQL: SELECT productos
+    CS-->>VC: Carrito actualizado en la sesión
+    VC-->>Navegador: Redirige a ruta=ventas
 
     Cajero->>Navegador: Guarda venta en espera
-    Navegador->>Venta: POST guardar_pendiente
-    Venta->>MySQL: INSERT ventas_pendientes
-    Venta->>MySQL: INSERT detalle_venta_pendiente por línea
-    Note over Venta,MySQL: No se modifica productos.cantidad ni se inserta en ventas
-    Venta->>Sesion: Vacía carrito activo
-    Venta-->>Navegador: Confirma venta pendiente
+    Navegador->>Router: POST ruta=ventas/guardar-pendiente
+    Router->>VC: guardarPendiente()
+    VC->>VPS: guardar()
+    VPS->>Repos: crear() y agregarItem()
+    Repos->>MySQL: INSERT ventas_pendientes y detalle
+    Note over Repos,MySQL: No modifica el stock ni crea una venta
 
-    Cajero->>Navegador: Selecciona otra venta y luego retoma la anterior
-    Navegador->>Venta: POST retomar_pendiente con ID P-n
-    Venta->>MySQL: Lee encabezado y detalle pendiente
-    MySQL-->>Venta: Total y líneas guardadas
-    Venta->>Sesion: Restaura carrito y venta_pendiente_id
-    Venta-->>Navegador: Muestra líneas y total restaurados
+    Cajero->>Navegador: Retoma la venta
+    Navegador->>Router: POST ruta=ventas/retomar-pendiente
+    Router->>VC: retomarPendiente()
+    VC->>VPS: retomar(id)
+    VPS->>CS: reemplazar(items) y marcarVentaPendiente(id)
 
-    Cajero->>Navegador: Confirma pago y datos opcionales del cliente
-    Navegador->>Factura: POST cobro
-    Factura->>Factura: Valida pago y datos del cliente
-    Factura->>MySQL: Inicia transacción
-    Factura->>MySQL: Bloquea y verifica stock con SELECT FOR UPDATE
-    MySQL-->>Factura: Existencias actuales
-    Factura->>MySQL: INSERT venta APROBADA y detalle_venta
-    Factura->>MySQL: UPDATE productos para descontar cantidades
-    Factura->>MySQL: DELETE venta pendiente original
-    Factura->>MySQL: COMMIT
-    Factura-->>Navegador: Factura con estado APROBADA
+    Cajero->>Navegador: Confirma pago y datos del cliente
+    Navegador->>Router: POST ruta=ventas/finalizar
+    Router->>VC: finalizar()
+    VC->>VC: ClienteValidator::validar()
+    VC->>VS: registrar(items, cliente, método, monto, pendienteId)
+    VS->>VS: MetodoPagoFactory crea la estrategia y valida el pago
+    VS->>MySQL: BEGIN (Transaccion)
+    VS->>Repos: crear venta, bloquear stock (FOR UPDATE), agregar detalle, descontar stock, eliminar pendiente
+    VS->>MySQL: COMMIT
+    VS-->>VC: Factura
+    VC-->>Navegador: Vista ventas/factura
 ```
 
 ## Archivos relacionados
 
-- Esquema de base de datos: [`minimarket/database.sql`](./minimarket/database.sql).
-- Migración de la versión 0.2: [`minimarket/migracion_v0_2.sql`](./minimarket/migracion_v0_2.sql).
-- Perfiles y sesiones: [`minimarket/auth.php`](./minimarket/auth.php).
-- Ventas y ventas pendientes: [`minimarket/venta.php`](./minimarket/venta.php).
-- Cobro y factura: [`minimarket/factura.php`](./minimarket/factura.php).
-- Consulta del historial: [`minimarket/historial.php`](./minimarket/historial.php).
+- Punto de entrada: [`minimarket/index.php`](./minimarket/index.php).
+- Rutas y permisos: [`minimarket/config/rutas.php`](./minimarket/config/rutas.php).
+- Registro de ventas: [`minimarket/app/Services/VentaService.php`](./minimarket/app/Services/VentaService.php).
+- Patrones de pago: [`minimarket/app/Services/Pagos`](./minimarket/app/Services/Pagos).
+- Esquema de base de datos: [`minimarket/database/database.sql`](./minimarket/database/database.sql).
+- Migración de la versión 0.2: [`minimarket/database/migracion_v0_2.sql`](./minimarket/database/migracion_v0_2.sql).
+- Migración de la versión 0.3 (productos descontinuados): [`minimarket/database/migracion_v0_3.sql`](./minimarket/database/migracion_v0_3.sql).
+- Pruebas automáticas: [`pruebas/ejecutar_pruebas.php`](./pruebas/ejecutar_pruebas.php).
